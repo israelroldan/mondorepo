@@ -1,0 +1,28 @@
+---
+layout: default
+---
+
+<div class="home align-center">
+
+  <a class="site-title" href="{{ '/' | relative_url}}"><img src="{{ '/assets/logo.png' | relative_url }}" alt=""></a>
+
+  <h1 class="">
+    <span class="accent">mondorepo</span> connects multiple repositories
+    to provide a unified node.js development experience
+  </h1>
+  Development teams increasingly need to work on more than one node.js project at a time.<br>
+  <br>
+  <span class="accent brand">mondorepo</span> enables collaboration on
+  a collection of <strong>jointly developed repositories</strong>
+  that may contain one or multiple projects themselves. <br>
+  <br>
+
+  <div class="align-center">One project, multiple packages and repositories, all aware of each other at runtime.</div>
+  <br>
+
+  {% for page in site.pages %}
+    {% if page.home_title != null %}
+      <h2><a href="{{page.url | relative_url }}">{{page.home_title}} <span class="accent">❯</span></a></h2>
+    {% endif %}
+  {% endfor %}
+</div>
