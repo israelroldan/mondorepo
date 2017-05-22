@@ -1,36 +1,26 @@
 #!/usr/bin/env node
-const fs = require('fs');
-const Path = require('path');
-const chalk = require('chalk');
+const File = require('phylo');
 
-let cwd = Path.resolve('.');
-let Mondo, mondoIndex;
+let cwd = File.cwd().upTo('node_modules');
+let Mondo, mondoCli;
 
 while (cwd) {
-    mondoIndex = Path.resolve(cwd, "node_modules/mondorepo/src/cli.js");
-    if (fs.existsSync(mondoIndex)) {
-        Mondo = require(mondoIndex);
+    mondoCli = cwd.join("mondorepo").join("cli").join("index.js");
+    if (mondoCli.exists()) {
+        Mondo = require(mondoCli.path);
         break;
     } else {
-        let parentDir = Path.resolve(cwd, '..');
-
-        if (parentDir === cwd) {
-            cwd = null;
-        } else {
-            cwd = parentDir;
-        }
+        cwd = cwd.parent && cwd.parent.parent ? cwd.parent.parent.parent.upTo('node_modules') : null;
     }
 }
 
 if (!Mondo) {
-    Mondo = require('../src/cli.js');
+    mondoCli = File.from(__dirname).parent.join("cli").join("index.js").absolutify();
+    Mondo = require(mondoCli.path);
 }
 
 const mondo = new Mondo();
-mondo.run().then(function (){},
-    function (cause) {
-        console.log("");
-        console.error(chalk.red(mondo.params.debug ? cause : cause.message));
-        process.exit(1);
-    }
-);
+mondo.run().catch(e => { 
+    mondo.log.error(/-{1,2}de?b?u?g?\b/.test(process.argv[2]) ? e.stack : e.message ? e.message : e);
+    process.exit(1);
+});

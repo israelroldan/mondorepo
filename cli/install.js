@@ -1,41 +1,37 @@
-"use strict";
-const fs = require('fs');
-const Path = require('path');
+const BaseCommand = require('./base/command');
 
 const chalk = require('chalk');
-const {Command} = require('switchit');
 const ora = require('ora');
 
-const constants = require('../constants');
-const Repo = require('../Repo');
-const VCS = require('../VCS');
-const PackageManagers = require('../PackageManagers');
-const Logger = require('../utils/Logger');
-const FileUtil = require('../utils/FileUtil');
+const fs = require('fs');
+const File = require('phylo');
+const Repo = require('../lib/repo');
+const VCS = require('../lib/vcs');
+const PackageManagers = require('../src/PackageManagers');
 
 const isWindows = /^win/.test(process.platform);
 
-class Install extends Command {
+class install extends BaseCommand {
     execute(params) {
         let me = this;
-        let mondo = this.root();
 
         me.binDirs = [];
         me.wrappedBins = [];
 
         me.vcs = VCS.git({
-            forks: params.forks ? mondo.settings.forks || {} : {}
+            forks: params.forks ? me.config.get('forks') || {} : {}
         });
 
         if (!me.vcs.available()) {
+            // TODO: Change error message based on selected vcs
             throw new Error('Git is required to run `mondo install`');
         }
 
-        me.packageManager = (PackageManagers[mondo.settings.packageManager] || PackageManagers.yarn)();
+        me.packageManager = (PackageManagers[me.config.get('packageManager')] || PackageManagers.yarn)();
 
         // Fallback to NPM when any package manager is not available
         if (!me.packageManager.available()) {
-            Logger.debug('Global yarn not found, using npm instead.');
+            me.log.debug('Global yarn not found, using npm instead.');
             me.packageManager = PackageManagers.npm();
         }
 
@@ -43,7 +39,7 @@ class Install extends Command {
         return me.installRepo(repo.root).then(() => {
             if (me.wrappedBins.length > 0) {
                 let message = 'Linking local binaries';
-                Logger.debug(message);
+                me.log.debug(message);
                 if (me.spinner) {
                     me.spinner.succeed();
                     me.spinner.text = message;
@@ -51,49 +47,61 @@ class Install extends Command {
                 }
 
                 let createWinBinary = (binDir, wrappedBin) => {
-                    let binPath = Path.join(binDir, wrappedBin.name + '.cmd');
-                    let message = `- Creating ${chalk.green(binPath)}`;
+                    let binPath = binDir.join(wrappedBin.name + '.cmd');
+                    let message = `Creating ${chalk.green(binPath.path)}`;
 
-                    if (fs.existsSync(binPath)) {
-                        message = `- Binary ${chalk.green(binPath)} already exists, overwriting`;
+                    if (binPath.exists()) {
+                        message = `Binary ${chalk.green(binPath.path)} already exists, overwriting`;
                         if (!me.spinner) {
-                            Logger.warn(message);
+                            me.log.warn(message);
                         }
                     }
 
-                    Logger.debug(message);
-                    fs.writeFileSync(binPath, `@IF EXIST "%~dp0\\node.exe" (\n  "%~dp0\\node.exe"  "%~dp0\\${wrappedBin.name}" %*\n) ELSE (\n  @SETLOCAL\n  @SET PATHEXT=%PATHEXT:;.JS;=;%\n  node  "%~dp0\\${wrappedBin.name}" %*\n)\n`);
-                    fs.chmodSync(binPath, '755');
+                    me.log.debug(message);
+                    binPath.save([
+                        '@IF EXIST "%~dp0\\node.exe" (',
+                        '  "%~dp0\\node.exe"  "%~dp0\\${wrappedBin.name}" %*',
+                        ') ELSE (',
+                        '  @SETLOCAL',
+                        '  @SET PATHEXT=%PATHEXT:;.JS;=;%',
+                        `  node  "%~dp0\\${wrappedBin.name}" %*`,
+                        ')',
+                        ''
+                    ].join('\n'));
+                    fs.chmodSync(binPath.path, '755');
                 };
 
                 let createUnixBinary = (binDir, wrappedBin) => {
-                    let binPath = Path.join(binDir, wrappedBin.name);
-                    let message = `- Creating ${chalk.green(binPath)}`;
+                    let binPath = binDir.join(wrappedBin.name);
+                    let message = `Creating ${chalk.green(binPath.path)}`;
 
-                    if (fs.existsSync(binPath)) {
-                        message = `- Binary ${chalk.green(binPath)} already exists, overwriting`;
+                    if (binPath.exists()) {
+                        message = `Binary ${chalk.green(binPath.path)} already exists, overwriting`;
                         if (!me.spinner) {
-                            Logger.warn(message);
+                            me.log.warn(message);
                         }
                     }
 
-                    Logger.debug(message);
-                    fs.writeFileSync(binPath, `#! /usr/bin/env node\nrequire('mondorepo/src/init');\nrequire('${wrappedBin.pkg.name}/${wrappedBin.file}');\n`);
-                    fs.chmodSync(binPath, '755');
+                    me.log.debug(message);
+                    binPath.save([
+                        '#! /usr/bin/env node',
+                        `require('mondorepo/src/init');`,
+                        `require('${wrappedBin.pkg.name}/${wrappedBin.file}');`,
+                        ''
+                    ].join('\n'));
+                    fs.chmodSync(binPath.path, '755');
                 };
 
                 me.wrappedBins.forEach(function(wrappedBin) {
-                    let message = `- Linking '${chalk.green(wrappedBin.name)}'`;
-                    Logger.debug(message);
+                    let message = `Linking '${chalk.green(wrappedBin.name)}'`;
+                    me.log.debug(message);
                     if (me.spinner) {
                         me.spinner.succeed();
                         me.spinner.text = message;
                         me.spinner.start();
                     }
                     me.binDirs.forEach(function(binDir) {
-                        if (!fs.existsSync(binDir)) {
-                            FileUtil.mkdirp(binDir);
-                        }
+                        binDir.mkdir();
                         createUnixBinary(binDir, wrappedBin);
                         if (isWindows) {
                             createWinBinary(binDir, wrappedBin);
@@ -117,25 +125,29 @@ class Install extends Command {
 
         if (repo.exists()) {
             if (repo.isRoot) {
-                const childPath = Path.resolve(repo.path, constants.child);
-                fs.writeFileSync(childPath, JSON.stringify({root: true}));
+                File.from(repo.path)
+                    .join(me.config.get('child'))
+                    .save({
+                        root: true
+                    });
             }
-
             return me.installRepoPackages(repo);
         }
 
-        let message = chalk.cyan(`Cloning repository '${chalk.magenta(repo.name)}' from '${chalk.yellow(repo.source.repository)}#${chalk.magenta(repo.source.branch || constants.branch)}' into '${chalk.magenta(Path.relative(process.cwd(), repo.path))}'`);
-        Logger.debug(message);
+        let message = chalk.cyan(`Cloning repository '${chalk.magenta(repo.name)}' from '${chalk.yellow(repo.source.repository)}#${chalk.magenta(repo.source.branch || me.config.get('branch'))}' into '${chalk.magenta(repo.path.relativize(File.cwd()))}'`);
+        me.log.debug(message);
         if (me.spinner) {
             me.spinner.succeed();
             me.spinner.text = message;
             me.spinner.start();
         }
 
-
-
         return me.vcs.clone(repo.source.repository, repo.path, repo.source.branch).then(() => {
-            fs.writeFileSync(Path.join(repo.path, constants.child), JSON.stringify({root: Path.relative(repo.path, process.cwd())}));
+            File.from(repo.path)
+                .join(me.config.get('child'))
+                .save({
+                    root: File.from(repo.path).relativize(File.cwd())
+                });
             return me.installRepoPackages(repo);
         });
     }
@@ -164,8 +176,10 @@ class Install extends Command {
         repo.open();
 
         let message = `Installing packages for '${chalk.yellow(repo.name)}'`;
-        Logger.debug(message);
-        if (!Logger.debug.enabled) {
+        me.log.debug(message);
+
+        me.log.indent();
+        if (!me.root().params.debug) {
             if (me.spinner) {
                 me.spinner.succeed();
             } else {
@@ -175,12 +189,12 @@ class Install extends Command {
             me.spinner.start();
         }
         let install = me.packageManager.install(repo.path);
-        me.binDirs.push(Path.join(repo.path, 'node_modules', '.bin'));
+        me.binDirs.push(File.from(repo.path).join('node_modules').join('.bin'));
         let packages = repo.packages;
         for (let pkg of packages) {
             install = install.then(() => {
-                let message = `- Installing '${chalk.yellow(repo.name)}:${chalk.magenta(pkg.name)}'`;
-                Logger.debug(message);
+                let message = `Installing '${chalk.yellow(repo.name)}:${chalk.magenta(pkg.name)}'`;
+                me.log.debug(message);
                 if (me.spinner) {
                     me.spinner.succeed();
                     me.spinner.text = message;
@@ -188,8 +202,8 @@ class Install extends Command {
                 }
 
                 return me.packageManager.install(pkg.path).then(() => {
-                    me.binDirs.push(Path.join(pkg.path, 'node_modules', '.bin'));
-                    let pkgJson = require(Path.join(pkg.path, 'package.json'));
+                    me.binDirs.push(File.from(pkg.path).join('node_modules').join('.bin'));
+                    let pkgJson = File.from(pkg.path).join('package.json').load();
                     if (pkgJson.bin) {
                         Object.keys(pkgJson.bin).forEach(function(name) {
                             me.wrappedBins.push({
@@ -199,17 +213,20 @@ class Install extends Command {
                             });
                         });
                     }
-                });
+                })
             });
         }
 
         // read the repo from the disk
-        return install.then(() => me.installChildren(repo));
+        return install.then(() => {
+            me.log.outdent();
+            me.installChildren(repo);
+        });
     }
 
 }
 
-Install.define({
+install.define({
     help: {
         '': 'Brings the mondo in!',
         'forks': 'Enable local fork settings when downloading repos'
@@ -217,4 +234,4 @@ Install.define({
     switches: '[forks:boolean=true]'
 });
 
-module.exports = Install;
+module.exports = install;

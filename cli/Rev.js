@@ -7,9 +7,9 @@ const chalk = require('chalk');
 const columnify = require('columnify');
 const JSON5 = require('json5');
 const jsonfile = require('jsonfile');
-const NPM = require('../pkgMgrs/Npm.js');
-const Repo = require('../Repo.js');
-const Collection = require('../utils/Collection.js');
+const NPM = require('../src/npm/Npm.js');
+const Repo = require('../lib/repo.js');
+const Collection = require('../lib/collection.js');
 
 class RevPackage {
     constructor(pkg) {

@@ -1,5 +1,5 @@
-const Npm = require('./pkgMgrs/Npm');
-const Yarn = require('./pkgMgrs/Yarn');
+const Npm = require('./npm/Npm');
+const Yarn = require('./npm/Yarn');
 
 class PackageManagers {
     static configure (opts) {
