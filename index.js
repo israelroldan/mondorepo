@@ -1,4 +1,4 @@
 module.exports = {
-    Repo: require('./src/Repo'),
-    Package: require('./src/Package')
+    Repo: require('./lib/repo'),
+    Package: require('./lib/package')
 };

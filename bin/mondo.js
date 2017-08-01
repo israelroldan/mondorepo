@@ -1,36 +1,32 @@
 #!/usr/bin/env node
-const fs = require('fs');
-const Path = require('path');
-const chalk = require('chalk');
+const File = require('phylo');
+const isDebug = /-{1,2}de?b?u?g?\b/.test(process.argv[2]);
+const log = require('loog')({
+    prefixStyle: 'ascii',
+    logLevel: isDebug ? 'debug' : 'info'
+});
 
-let cwd = Path.resolve('.');
-let Mondo, mondoIndex;
+let cwd = File.cwd().upToDir('node_modules');
+let Mondo, mondoCli;
 
 while (cwd) {
-    mondoIndex = Path.resolve(cwd, "node_modules/mondorepo/src/cli.js");
-    if (fs.existsSync(mondoIndex)) {
-        Mondo = require(mondoIndex);
+    mondoCli = cwd.join("mondorepo/cli/index.js");
+    if (mondoCli.exists()) {
+        log.debug(`Using local version from ${mondoCli.path}`);
+        Mondo = require(mondoCli.path);
         break;
     } else {
-        let parentDir = Path.resolve(cwd, '..');
-
-        if (parentDir === cwd) {
-            cwd = null;
-        } else {
-            cwd = parentDir;
-        }
+        cwd = cwd.parent && cwd.parent.parent ? cwd.parent.parent.parent.upToDir('node_modules') : null;
     }
 }
 
 if (!Mondo) {
-    Mondo = require('../src/cli.js');
+    mondoCli = File.from(__dirname).parent.join("cli/index.js").absolutify();
+    log.debug(`Using global version from ${mondoCli.path}`);
+    Mondo = require(mondoCli.path);
 }
 
-const mondo = new Mondo();
-mondo.run().then(function (){},
-    function (cause) {
-        console.log("");
-        console.error(chalk.red(mondo.params.debug ? cause : cause.message));
-        process.exit(1);
-    }
-);
+new Mondo(log).run().catch(e => { 
+    log.error(isDebug ? e.stack : (e.message ? e.message : e));
+    process.exit(1);
+});

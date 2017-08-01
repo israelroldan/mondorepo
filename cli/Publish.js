@@ -1,59 +1,62 @@
-"use strict";
-const Path = require('path');
-const fs = require('fs');
-const {Command} = require('switchit');
+const BaseCommand = require('./base/command');
+
+const File = require('phylo');
 const semver = require('semver');
 const chalk = require('chalk');
 const columnify = require('columnify');
-const jsonfile = require('jsonfile');
 const JSON5 = require('json5');
-const NPM = require('../pkgMgrs/Npm.js');
-const Repo = require('../Repo.js');
-const Collection = require('../utils/Collection.js');
+
+const Npm = require('../lib/npm.js');
+const Repo = require('../lib/repo.js');
+const Collection = require('../lib/collection.js');
+
 const isWindows = /^win/.test(process.platform);
 
-class Publish extends Command {
-    constructor() {
-        this.publisher = new NPM();
-    }
-
+class Publish extends BaseCommand {
     execute(params) {
-        const {recursive, dry, script, 'check-existing': checkExisting} = params;
-        const path = params.path ? Path.isAbsolute(params.path) ? params.path : Path.join(process.cwd(), params.path) : process.cwd();
+        let me = this;
+
+        const {recursive, 'dry-run': dry, script, 'check-existing': checkExisting} = params;
+        const path = params.path ? File.from(params.path).isAbsolute() ? File.from(params.path) : File.cwd().join(params.path) : File.cwd();
         const repo = Repo.open(path);
 
-        this._packages = new Collection();
+        me.publisher = new Npm({
+            log: me.log,
+            debug: me.root().params.debug
+        });
 
-        this.hasPublishConflict = false;
-        this.dry = script ? false : dry;
-        this.script = script;
-        this.checkExisting = checkExisting;
+        me._packages = new Collection();
+
+        me.hasPublishConflict = false;
+        me.dry = script ? false : dry;
+        me.script = script;
+        me.checkExisting = checkExisting;
 
         // Get a list of all the packages we will be publishing
         for (let pkg of (recursive ? repo.allPackages : repo.packages)) {
             if (!pkg.private) {
-                this._packages.add(pkg);
+                me._packages.add(pkg);
             }
         }
 
         if (checkExisting) {
-            return this.doCheckExisting()
+            return me.doCheckExisting()
                 .then(() => {
-                    if (this.dry || this.hasPublishConflict) {
-                        this.log();
+                    if (me.dry || me.hasPublishConflict) {
+                        me.writeSummary();
                     } else if (script) {
-                        this.writeScript();
+                        me.writeScript();
                     } else {
-                        this.log();
-                        return this.publish();
+                        me.writeSummary();
+                        return me.publish();
                     }
                 });
         } else {
             if (script) {
-                this.writeScript();
+                me.writeScript();
             } else {
-                this.log();
-                return this.publish();
+                me.writeSummary();
+                return me.publish();
             }
         }
     }
@@ -91,7 +94,8 @@ class Publish extends Command {
             }));
     }
 
-    log() {
+    writeSummary () {
+        let me = this;
         let columns = Array.from(this._packages.items);
         let statusRegExp = /^ (W|E) /g;
         let statusRegExpResult, colorFunc;
@@ -109,11 +113,28 @@ class Publish extends Command {
             }
         });
 
+        let colwidth = ((process.stdout.columns - 3) / 3);
         columns = columnify(columns, {
-            showHeaders: false,
-            minWidth: 20,
+            showHeaders: true,
+            minWidth: colwidth,
+            maxLineWidth: 'auto',
             config: {
-                status: {align: 'center', minWidth: 3}
+                status: {
+                    align: 'center',
+                    headingTransform: () => 'S\n···',
+                    minWidth: 3
+                },
+                name: {
+                    headingTransform: () => chalk.bold('Name')+'\n····',
+                    maxWidth: colwidth
+                },
+                version: {
+                    headingTransform: () => chalk.bold('Version')+'\n·······',
+                    maxWidth: colwidth
+                },
+                details: {
+                    headingTransform: () => chalk.bold('Details')+'\n·······'
+                }
             },
             columns: ['status', 'name', 'version', 'details']
         });
@@ -127,9 +148,9 @@ class Publish extends Command {
                     return colorFunc(row);
                 }
                 return row;
-            }).join('\n');
+            });
 
-        console.log(columns);
+        columns.forEach(l => me.log.log(l));
     }
 
     publish() {
@@ -137,14 +158,13 @@ class Publish extends Command {
         return this._packages.reduce((promise, pkg) => {
             return promise.then(() => {
                 const json = pkg.publishify();
-                const original = fs.readFileSync(pkg.file);
-                jsonfile.writeFileSync(pkg.file, json, {spaces: 4});
-
+                const original = pkg.file.load();
+                jsonfile.writeFileSync(pkg.file.path, json, {spaces: 4});
                 return this.publisher.publish(pkg.path).then(r => {
-                    fs.writeFileSync(pkg.file, original);
+                    pkg.file.save(original);
                     return r;
                 }).catch(err => {
-                    fs.writeFileSync(pkg.file, original);
+                    pkg.file.save(original);
                     if (this.checkExisting || !err.message.includes('You cannot publish over the previously published version')) {
                         throw err;
                     } else {
@@ -164,13 +184,14 @@ class Publish extends Command {
     }
 
     writeScript() {
+        let me = this;
         const prefix = isWindows ? 'REM' : '#';
         this._packages.forEach(pkg => {
             if (!pkg.$$alreadyPublished) {
-                console.log(`npm publish ${pkg.path}`);
+                me.log.log(`npm publish ${pkg.path}`);
             } else {
-                console.log(`${prefix} Version already exists for ${pkg.name}`);
-                console.log(`${prefix} npm publish ${pkg.path}`);
+                me.log.log(`${prefix} Version already exists for ${pkg.name}`);
+                me.log.log(`${prefix} npm publish ${pkg.path}`);
             }
         });
     }
@@ -178,13 +199,14 @@ class Publish extends Command {
 
 Publish.define({
     help: {
-        '': 'Rev version of packages from the current repo'
+        '': 'Rev version of packages from the current repo',
+        'dry-run': 'Show a summary of changes to perform, leaves everything intact',
+        'script': 'Outputs a script to perform the operations manually',
+        'check-existing': 'Compare against published versions in the npm registry',
+        'recursive': 'Process all known packages (including those inside used repositories)'
     },
     parameters: '[path=]',
-    switches: `[dry:boolean=false]
- [script:boolean=false]
- [check-existing:boolean=true]
- [recursive:boolean=false]`
+    switches: '[dry-run:boolean=false] [script:boolean=false] [check-existing:boolean=true] [recursive:boolean=false]'
 });
 
 

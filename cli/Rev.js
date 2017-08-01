@@ -1,15 +1,15 @@
-"use strict";
+const BaseCommand = require('./base/command');
 
-const Path = require('path');
-const {Command} = require('switchit');
+const File = require('phylo');
 const semver = require('semver');
 const chalk = require('chalk');
 const columnify = require('columnify');
 const JSON5 = require('json5');
 const jsonfile = require('jsonfile');
-const NPM = require('../pkgMgrs/Npm.js');
-const Repo = require('../Repo.js');
-const Collection = require('../utils/Collection.js');
+
+const Npm = require('../lib/npm.js');
+const Repo = require('../lib/repo.js');
+const Collection = require('../lib/collection.js');
 
 class RevPackage {
     constructor(pkg) {
@@ -76,26 +76,33 @@ class RevPackage {
 }
 
 
-class Rev extends Command {
+class Rev extends BaseCommand {
     execute(params) {
-        const path = params.path ? Path.isAbsolute(params.path) ? params.path : Path.join(process.cwd(), params.path) : process.cwd();
+        let me = this;
+
+        const path = params.path ? File.from(params.path).isAbsolute() ? File.from(params.path) : File.cwd().join(params.path) : File.cwd();
         const version = params.version.raw !== '0.0.0' ? params.version : false;
-        const {preid, increment, recursive, dry, modified: checkModified, 'check-existing': checkExisting} = params;
+        const {preid, increment, recursive, 'dry-run': dry, 'check-modified': checkModified, 'check-existing': checkExisting} = params;
         const repo = Repo.open(path);
 
-        this._revPackages = new Collection();
-        this.checkModified = checkModified;
-        this.checkExisting = checkExisting;
-        this.dry = dry;
+        me._revPackages = new Collection();
+        me.checkModified = checkModified;
+        me.checkExisting = checkExisting;
+        me.dry = dry;
+
+        me.npm = new Npm({
+            log: me.log,
+            debug: me.root().params.debug
+        });
 
         // Get a list of all the this._revPackages we will be reving
 
         for (let pkg of (recursive ? repo.allPackages : repo.packages)) {
-            this._revPackages.add(new RevPackage(pkg));
+            me._revPackages.add(new RevPackage(pkg));
         }
 
         // Increment or set the version for this package in memory
-        for (let revPkg of this._revPackages) {
+        for (let revPkg of me._revPackages) {
             if (version) {
                 if (semver.neq(revPkg.version, version)) {
                     revPkg.version = version;
@@ -107,22 +114,22 @@ class Rev extends Command {
             }
         }
 
-        return this.updateRegistryData()
-            .then(this.updatePublishableDependencies.bind(this))
-            .then(this.logRev.bind(this))
-            .then(this.writeRev.bind(this));
+        return me.updateRegistryData()
+            .then(me.updatePublishableDependencies.bind(me))
+            .then(me.logRev.bind(me))
+            .then(me.writeRev.bind(me));
     }
 
     updateRegistryData() {
-        const checkExisting = this.checkExisting;
-        const checkModified = this.checkModified;
+        let me = this;
+        const checkExisting = me.checkExisting;
+        const checkModified = me.checkModified;
 
         if (checkExisting || checkModified) {
-            const npm = new NPM();
             return Promise.all(
-                this._revPackages.map(revPkg => {
+                me._revPackages.map(revPkg => {
                     // Run NPM view over the package to get registry data
-                    return npm.view(revPkg.name, revPkg.originalVersion)
+                    return me.npm.view(revPkg.name, revPkg.originalVersion)
                         .then(results => {
                             const registry = revPkg.registry = !!results ? JSON5.parse(results) : false;
 
@@ -174,6 +181,7 @@ class Rev extends Command {
     }
 
     logRev() {
+        let me = this;
         const log = [];
 
         let statusRegExp = /^ (W|E) /g;
@@ -211,11 +219,28 @@ class Rev extends Command {
             log.push(pkgLog);
         });
 
+        let colwidth = ((process.stdout.columns - 3) / 3);
         columns = columnify(log, {
-            showHeaders: false,
-            minWidth: 20,
+            showHeaders: true,
+            minWidth: colwidth,
+            maxLineWidth: 'auto',
             config: {
-                status: {align: 'center', minWidth: 3}
+                status: {
+                    align: 'center',
+                    headingTransform: () => 'S\n···',
+                    minWidth: 3
+                },
+                name: {
+                    headingTransform: () => chalk.bold('Name')+'\n····',
+                    maxWidth: colwidth
+                },
+                version: {
+                    headingTransform: () => chalk.bold('Version')+'\n·······',
+                    maxWidth: colwidth
+                },
+                details: {
+                    headingTransform: () => chalk.bold('Details')+'\n·······'
+                }
             },
             columns: ['status', 'name', 'version', 'details']
         });
@@ -229,9 +254,9 @@ class Rev extends Command {
                     return colorFunc(row);
                 }
                 return row;
-            }).join('\n');
+            });
 
-        console.log(columns);
+        columns.forEach(l => me.log.log(l));
     }
 
     writeRev() {
@@ -242,7 +267,7 @@ class Rev extends Command {
                     const pkg = revPkg.package;
                     const manifest = pkg.package;
                     manifest.version = revPkg.version.raw;
-                    jsonfile.writeFileSync(Path.join(pkg.path, 'package.json'), manifest, {spaces: 4});
+                    jsonfile.writeFileSync(pkg.path.join('package.json').path, manifest, {spaces: 4});
                 }
             });
         }
@@ -252,18 +277,21 @@ class Rev extends Command {
 Rev.define({
     help: {
         '': 'Rev version of packages from the current repo',
-        'dry': 'Dry run, will not modify any files'
+        'dry-run': 'Show a summary of changes to perform, leaves everything intact',
+        'check-existing': 'Compare against published versions in the npm registry',
+        'check-modified': 'Compare against the hash of the latest published version',
+        'recursive': 'Process all known packages (including those inside used repositories)',
+        'increment': 'The increment to the version to apply (major, minor, patch, or prerelease)',
+        'preid': 'Used when incrementing for a prerelease (eg. The "alpha" in 1.0.0-alpha.1)'
     },
     parameters: '[path=]',
-    switches: `[dry:boolean=false]
-    [check-existing:boolean=true]
-    [modified:boolean=false]
-    
-    [force-patch-version-sync:boolean=false]
-    [recursive:boolean=false]
-    [increment:string=patch]
-    [preid:string=]
-    [version:semver=0.0.0]`
+    switches: `[dry-run:boolean=false]
+               [check-existing:boolean=true]
+               [check-modified:boolean=false]
+               [recursive:boolean=false]
+               [increment:string=patch]
+               [preid:string=]
+               [version:semver=0.0.0]`
 });
 
 module.exports = Rev;
