@@ -44,10 +44,10 @@
     "json5": "^0.5.1",
     "jsonfile": "^2.4.0",
     "loog": "^1.6.0",
-    "phylo": "^1.0.0-beta.7",
+    "phylo": "^1.0.0-rc.1",
     "semver": "^5.4.1",
     "simple-git": "^1.75.0",
-    "switchit": "^1.0.7"
+    "switchit": "^1.0.8"
   },
   "bugs": {
     "url": "https://github.com/sencha/mondorepo/issues"
