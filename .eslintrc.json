@@ -26,6 +26,9 @@
         "eol-last": [
             "error",
             "unix"
+        ],
+        "no-tabs": [
+            "error"
         ]
     }
 }

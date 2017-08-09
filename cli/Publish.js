@@ -6,9 +6,9 @@ const chalk = require('chalk');
 const columnify = require('columnify');
 const JSON5 = require('json5');
 
-const Npm = require('../lib/npm.js');
-const Repo = require('../lib/repo.js');
-const Collection = require('../lib/collection.js');
+const Npm = require('../src/npm.js');
+const Repo = require('../src/repo.js');
+const Collection = require('../src/collection.js');
 
 const isWindows = /^win/.test(process.platform);
 

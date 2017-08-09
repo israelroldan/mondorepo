@@ -4,11 +4,11 @@ const chalk = require('chalk');
 
 const fs = require('fs');
 const File = require('phylo');
-const Repo = require('../lib/repo');
-const VCS = require('../lib/vcs');
-const Npm = require('../lib/npm');
+const Repo = require('../src/repo');
+const VCS = require('../src/vcs');
+const Npm = require('../src/npm');
 
-const {promiseSerial} = require('../lib/util');
+const {promiseSerial} = require('../src/Util');
 const isWindows = /^win/.test(process.platform);
 
 class install extends BaseCommand {

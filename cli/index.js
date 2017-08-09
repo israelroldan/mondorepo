@@ -6,7 +6,7 @@ const Fork = require('./fork');
 const Publish = require('./publish');
 const Rev = require('./rev');
 
-const Config = require('../lib/config');
+const Config = require('../src/config');
 
 class Mondo extends Container {
     constructor (log) {

@@ -13,7 +13,7 @@
   "scripts": {
     "test": "nyc mocha ./test/specs/**/*.js",
     "test-debug": "devtool node_modules/mocha/bin/_mocha -qc --break -- ./test/specs/**/*.js",
-    "lint": "eslint ./cli/**/*.js ./lib/**/*.js"
+    "lint": "eslint ./cli/**/*.js ./src/**/*.js"
   },
   "keywords": [
     "multimodule",
