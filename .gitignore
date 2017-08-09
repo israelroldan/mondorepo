@@ -6,3 +6,4 @@ yarn.lock
 /npm-debug.log
 
 \.vscode/
+package-lock.json

@@ -35,11 +35,10 @@ class install extends BaseCommand {
         });
 
         return me.installRepo().then((repo) => {
-            let mondoverse = repo.allPackages;
-            return promiseSerial(repo.packages.map(pkg => () => {
-                me.log.debug(`Linking '${repo.name}:${pkg.name}' with ${mondoverse.length} known packages`);
-                let dependencies = Object.keys(pkg.file.load().dependencies || {});
-                let mondodeps = mondoverse.filter(p => !!~dependencies.indexOf(p.name) && !p.path.equals(pkg.path)).map(p => p.path.relativePath(pkg.path));
+            me.log.debug('Linking all packages in the mondoverse');
+            return promiseSerial(repo.allPackages.map(pkg => () => {
+                me.log.debug(`Processing ${pkg.repo.name}:${pkg.name}`);
+                let mondodeps = pkg.mondoDependencies.map(p => p.path.relativePath(pkg.path));
                 mondodeps.forEach((p) => {
                     // TODO: Remove this once https://github.com/npm/npm/issues/17257 is dealt with
                     File.from(p).join('node_modules').remove('r');
@@ -72,7 +71,7 @@ class install extends BaseCommand {
 
     installRepo (repo) {
         let me = this;
-        let clone;
+        let promise;
 
         if (!repo) {
             repo = Repo.open(File.cwd(), me.config).root;
@@ -84,11 +83,11 @@ class install extends BaseCommand {
 
         repo.installed = true;       
         if (repo.exists()) {
-            clone = Promise.resolve(repo);
+            promise = Promise.resolve(repo);
         } else {
-            clone = me.vcs.clone(repo.source.repository, repo.path, repo.source.branch);
+            promise = me.vcs.clone(repo.source.repository, repo.path, repo.source.branch);
         }
-        return clone.then(() => me.installUsed(repo)).then(() => me.installPackages(repo));
+        return promise.then(() => me.installUsed(repo)).then(() => me.installPackages(repo));
     }
 
     installUsed (repo) {

@@ -65,27 +65,15 @@ class Package {
     }
 
     get mondoDependencies() {
-        let mondoDependencies = this._mondoDependencies;
-
-        if (!mondoDependencies) {
-            const deps = this._mondo.dependencies || {};
-            const visiblePackages = this.repo.visiblePackages;
-            mondoDependencies = new Collection();
-
-            Object.keys(deps).forEach(depName => {
-                const pkg = visiblePackages.get(depName);
-
-                if (!pkg) {
-                    throw new Error(`Package ${depName} was not found from package ${this.name}`);
-                }
-
-                mondoDependencies.add(pkg);
-            });
-
-            this._mondoDependencies = mondoDependencies;
+        if (!this._mondoDependencies) {
+            const deps = Object.keys(this._package.dependencies || {});
+            this._mondoDependencies = new Collection();
+            this._mondoDependencies.addAll(
+                this.repo.root.allPackages
+                    .filter(pkg => !!~deps.indexOf(pkg.name) && !pkg.path.equals(this.path))
+            );
         }
-
-        return mondoDependencies;
+        return this._mondoDependencies;
     }
 
     get allMondoDependencies() {
