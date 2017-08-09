@@ -1,6 +1,7 @@
 const exec = require('child_process').execSync;
 const chalk = require('chalk');
 const SimpleGit = require('simple-git');
+const File = require('phylo');
 
 const VCSBase = require('./base');
 
@@ -20,10 +21,13 @@ class Git extends VCSBase {
             const fork = me.forks[repoPath];
             const originalRepoPath = repoPath;
 
-            if (fork) {
-                repoPath = fork;
+            if (!fork) {
+                me.log.error(`A fork of project '${repoPath}' could not be found.`);
+                return reject(`Use ${chalk.yellow(`mondo fork add ${repoPath} <forkName>`)} to add one.`);
             }
-            me.log.info(`Cloning '${chalk.yellow(originalRepoPath)}#${chalk.magenta(branch)}' into '${chalk.magenta(path.path)}'`);
+
+            repoPath = fork;
+            me.log.info(`Cloning '${chalk.yellow(originalRepoPath)}#${chalk.magenta(branch)}' into '${chalk.magenta(path.relativePath(File.cwd()))}'`);
             let simpleGit = SimpleGit();
             if (me.debug) {
                 simpleGit.outputHandler((cmd, stdout, stderr) => {
@@ -53,7 +57,7 @@ class Git extends VCSBase {
                             });
                         }
                         me.log.debug(`Fork Detected installing from '${chalk.yellow(repoPath)}#${chalk.magenta(branch)}' into '${path}'`);
-                        simpleGit(path.path).addRemote(me.config.get('forkedRepoName'), `git@github.com:${originalRepoPath}.git`, (err) => {
+                        simpleGit.addRemote(me.config.get('forkedRepoName'), `git@github.com:${originalRepoPath}.git`, (err) => {
                             if (err) {
                                 reject(err);
                             } else {
